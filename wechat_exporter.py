@@ -10,6 +10,7 @@ import config
 import logging
 import re
 from tqdm import tqdm
+from pywinauto.mouse import press, release, move
 
 # 配置日志
 logging.basicConfig(
@@ -117,8 +118,12 @@ def is_timestamp(text):
     full_pattern = r'\d{4}年\d{1,2}月\d{1,2}日 \d{1,2}:\d{2}'
     # 匹配只有时间格式：20:44
     time_pattern = r'^\d{1,2}:\d{2}$'
+    # 匹配昨天格式：昨天 20:44
+    yesterday_pattern = r'^昨天 \d{1,2}:\d{2}$'
     
-    return bool(re.match(full_pattern, text) or re.match(time_pattern, text))
+    return bool(re.match(full_pattern, text) or 
+                re.match(time_pattern, text) or 
+                re.match(yesterday_pattern, text))
 
 def is_system_message(text):
     """检查是否是系统消息"""
@@ -169,6 +174,7 @@ def parse_message_time(msg):
         # 尝试解析中文日期时间格式：2025年4月10日 20:44
         full_pattern = r'(\d{4})年(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})'
         time_pattern = r'(\d{1,2}):(\d{2})'
+        yesterday_pattern = r'昨天 (\d{1,2}):(\d{2})'
         
         # 先尝试解析完整日期时间
         match = re.search(full_pattern, msg)
@@ -178,7 +184,17 @@ def parse_message_time(msg):
             print(f"Parsed full timestamp: {msg_time}")
             return msg_time
             
-        # 如果完整日期时间解析失败，尝试解析只有时间的情况
+        # 尝试解析"昨天"格式
+        match = re.search(yesterday_pattern, msg)
+        if match:
+            hour, minute = map(int, match.groups())
+            # 使用昨天的日期
+            yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+            msg_time = datetime.datetime(yesterday.year, yesterday.month, yesterday.day, hour, minute)
+            print(f"Parsed yesterday timestamp: {msg_time}")
+            return msg_time
+            
+        # 如果完整日期时间和"昨天"格式都解析失败，尝试解析只有时间的情况
         match = re.search(time_pattern, msg)
         if match:
             hour, minute = map(int, match.groups())
@@ -195,8 +211,20 @@ def parse_message_time(msg):
 
 def find_target_time_point(chat_list):
     """查找目标时间点"""
-    target_time = datetime.datetime.now() - datetime.timedelta(hours=config.MESSAGE_TIME_RANGE)
-    logging.info(f"Target time: {target_time}")
+    # 根据配置确定目标时间
+    if config.START_TIME:
+        # 如果设置了开始时间，使用配置的开始时间
+        target_time = datetime.datetime.strptime(config.START_TIME, "%Y-%m-%d %H:%M:%S")
+        logging.info(f"Using configured start time: {target_time}")
+    else:
+        # 如果没有设置开始时间，使用当前时间
+        target_time = datetime.datetime.now()
+        logging.info("No start time configured, using current time")
+    
+    # 如果设置了结束时间，记录日志
+    if config.END_TIME:
+        end_time = datetime.datetime.strptime(config.END_TIME, "%Y-%m-%d %H:%M:%S")
+        logging.info(f"Configured end time: {end_time}")
     
     # 获取当前可见的消息
     messages = extract_text_content(chat_list)
@@ -208,35 +236,13 @@ def find_target_time_point(chat_list):
             msg_time = parse_message_time(msg)
             if msg_time:
                 print(f"  Parsed time: {msg_time}")
-                # 如果是今天的时间，只比较时分
-                if msg_time.date() == datetime.datetime.now().date():
-                    target_hour = target_time.hour
-                    target_minute = target_time.minute
-                    msg_hour = msg_time.hour
-                    msg_minute = msg_time.minute
-                    
-                    # 转换为分钟数进行比较
-                    target_minutes = target_hour * 60 + target_minute
-                    msg_minutes = msg_hour * 60 + msg_minute
-                    
-                    print(f"  Today's message comparison:")
-                    print(f"  Target minutes: {target_minutes} ({target_hour}:{target_minute})")
-                    print(f"  Message minutes: {msg_minutes} ({msg_hour}:{msg_minute})")
-                    
-                    if msg_minutes <= target_minutes:
-                        print(f"Found first message before target time: {msg_time}")
-                        logging.info(f"Found first message before target time: {msg_time}")
-                        return msg_time
-                    else:
-                        print(f"Message time {msg_time} is not before target time {target_time}")
+                # 检查是否找到目标时间点
+                if msg_time <= target_time:
+                    print(f"Found message before target time: {msg_time}")
+                    logging.info(f"Found message before target time: {msg_time}")
+                    return msg_time
                 else:
-                    # 如果不是今天的消息，直接比较完整时间
-                    if msg_time <= target_time:
-                        print(f"Found first message before target time: {msg_time}")
-                        logging.info(f"Found first message before target time: {msg_time}")
-                        return msg_time
-                    else:
-                        print(f"Message time {msg_time} is not before target time {target_time}")
+                    print(f"Message time {msg_time} is not before target time {target_time}")
             else:
                 print(f"  Failed to parse time from: {msg}")
         else:
@@ -255,8 +261,16 @@ def collect_messages_after_time(chat_list, target_time):
     for msg in messages:
         if is_timestamp(msg):
             msg_time = parse_message_time(msg)
-            if msg_time and msg_time >= target_time:
-                filtered_messages.append(msg)
+            if msg_time:
+                # 如果设置了结束时间，检查消息是否在时间范围内
+                if config.END_TIME:
+                    end_time = datetime.datetime.strptime(config.END_TIME, "%Y-%m-%d %H:%M:%S")
+                    if target_time <= msg_time <= end_time:
+                        filtered_messages.append(msg)
+                else:
+                    # 如果没有设置结束时间，只检查是否在开始时间之后
+                    if msg_time >= target_time:
+                        filtered_messages.append(msg)
         else:
             filtered_messages.append(msg)
             
@@ -348,7 +362,11 @@ def export_wechat_messages():
         # 将消息写入文件
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"# {config.TARGET_GROUP} 聊天记录 - {now.strftime('%Y-%m-%d %H:%M')}\n\n")
-            f.write(f"时间范围: {target_time} 至 {now}\n\n")
+            if config.START_TIME:
+                f.write(f"开始时间: {config.START_TIME}\n")
+            if config.END_TIME:
+                f.write(f"结束时间: {config.END_TIME}\n")
+            f.write(f"导出时间: {now}\n\n")
             for message in unique_messages:
                 f.write(f"{message}\n\n")
         
@@ -373,7 +391,10 @@ def main():
     try:
         print("Starting WeChat Message Exporter...")
         print(f"Will export messages from group '{config.TARGET_GROUP}'")
-        print(f"Message time range: last {config.MESSAGE_TIME_RANGE} hours")
+        if config.START_TIME:
+            print(f"Start time: {config.START_TIME}")
+        if config.END_TIME:
+            print(f"End time: {config.END_TIME}")
         
         # 立即执行导出
         export_wechat_messages()
