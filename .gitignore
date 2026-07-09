@@ -1,0 +1,8 @@
+exports/
+logs/
+*.log
+.env
+groups_config.json
+ftpinfo.json
+__pycache__/
+*.pyc

@@ -1,4 +1,7 @@
-pywinauto>=0.6.8
-python-dotenv>=0.19.0
-schedule>=1.1.0
-tqdm>=4.65.0 
+pywinauto==0.6.8
+python-dotenv==1.0.0
+schedule==1.2.0
+tqdm==4.65.0
+pyinstaller==6.1.0
+tkcalendar==1.6.1
+babel==2.13.1
