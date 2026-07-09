@@ -99,6 +99,7 @@ python fast_export.py --group "My Group" --show-last
 ## 项目结构
 
 ```
+├── SKILL.md                   # Claude Code 技能说明（让本仓库可作为技能安装）
 ├── wechat_exporter.py         # 导出引擎 + 图形界面
 ├── fast_export.py             # 快速滚动命令行导出器
 ├── config.py                  # 配置（读取 .env）
@@ -107,6 +108,22 @@ python fast_export.py --group "My Group" --show-last
 ├── .env.example               # 配置模板 → 复制为 .env
 └── groups_config.example.json # 群列表模板 → 复制为 groups_config.json
 ```
+
+## 作为 Claude Code 技能安装
+
+本仓库自带 `SKILL.md`，可直接作为 [Claude Code](https://claude.com/claude-code) 技能使用——把整个仓库克隆到技能目录即可：
+
+```bash
+git clone https://github.com/qingxuantang/wechatdaily.git ~/.claude/skills/wechatdaily
+cd ~/.claude/skills/wechatdaily
+pip install -r requirements.txt
+```
+
+之后在 Claude Code 里用自然语言触发，例如：
+
+> 导出 My Group 从昨天9点到现在
+
+Claude 会解析时间、确认参数、调用 `fast_export.py` 滚动加载并导出，再把结果（打开的聊天、是否滚到起点、写入条数、文件路径）报告给你。触发词见 `SKILL.md` 的 `description`。
 
 ## 安全说明
 
